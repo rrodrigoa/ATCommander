@@ -10,19 +10,6 @@
 
 using namespace std;
 
-class ATCommand {
-public:
-	VerifySignal();
-	VerifyService();
-	MessageSend();
-	MessageReceive();
-	CallMake();
-	CallReceive();
-	CallHangUp();
-private:
-	
-}
-
 enum ATUIMessageType
 {
 	Message = 0,
@@ -32,7 +19,7 @@ enum ATUIMessageType
 
 class ATUI{
 public:
-	StartUpMessage(ATUIMessageType type, char* message)
+	void StartUpMessage(ATUIMessageType type, char* message)
 	{
 		switch (type)
 		{
@@ -46,7 +33,56 @@ public:
 				printf("Success: %s", message);
 				break;
 		}
-	}	
+	}
+	
+	void GeneralMessage(ATUIMessageType type, char* message)
+	{
+	}
+}
+
+class ATCommand {
+public:
+	void ATOK()
+	{
+		this->sendMessage = "AT";
+		this->receiveMessage = "OK";
+		this->delimiterMessage = ',';
+	}
+	
+	NetworkGet();
+	SignalGet();
+	IMEIGet();
+	VerifySignal();
+	VerifyService();
+	MessageSend();
+	MessageReceive();
+	CallMake();
+	CallReceive();
+	CallHangUp();
+	
+	/*
+	Execute(int fd, ATUI* ui)
+	{
+		void* outputParameters[20];
+		int length;
+		
+		serialWrite(fd, this->sendMessage, length(this.sendMessage));
+		serialRead(fd, this->parseMessage, void* parameters, &length);
+		
+		if (length == 1 and ((char*)parameters[0] == this->receive)
+		{
+			ui->GeneralMessage(ATUIMessageType.Success, "AT OK");
+		}
+		else
+		{
+			ui->GeneralMessage(ATUIMessageType.Error, "AT FAIL");
+		}
+	}*/
+private:
+	ATCommand();
+	char* sendMessage;
+	char* receiveMessage;
+	char delimiterMessage;
 }
 
 class ATCommander{
