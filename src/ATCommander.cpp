@@ -6,6 +6,7 @@
 #include <string.h>
 #include <termios.h>
 #include <wchar.h>
+#include <queue>
 
 #include <iostream>
 #include <sys/types.h>
@@ -13,6 +14,8 @@
 
 #include <chrono>
 #include <thread>
+
+#include "ATResponses.h"
 
 using namespace std;
 
@@ -25,91 +28,104 @@ enum ATUIMessageType
 	Read = 4
 };
 
-class ATUI{
+class IATUI{
+public:
+	virtual void StartUpMessage(ATUIMessageType type, std::string message) = 0;
+};
+
+class ATUI : public IATUI{
 	public:
-		void StartUpMessage(ATUIMessageType type, char* message)
+		void StartUpMessage(ATUIMessageType type, std::string message)
 		{
 			switch (type)
 			{
 				case Message:
-					printf("Message: %s\n", message);
+					printf("Message: %s\n", message.c_str());
 					break;
 				case Error:
-					printf("Error: %s\n", message);
+					printf("Error: %s\n", message.c_str());
 					break;
 				case Success:
-					printf("Success: %s\n", message);
+					printf("Success: %s\n", message.c_str());
 					break;
 				case Command:
-					printf("Command: %s\n", message);
+					printf("Command: %s\n", message.c_str());
 					break;
 				case Read:
-					printf("Read: %s\n", message);
+					printf("Read: %s\n", message.c_str());
 					break;
 			}
-		}
-
-		void GeneralMessage(ATUIMessageType type, char* message)
-		{
 		}
 };
 
 class ATCommand {
 public:
-	static ATCommand* ATOK()
-	{
-		ATCommand* newCommand = new ATCommand();
-		newCommand->SendMessage = "AT\r\n";
-		newCommand->ReceiveMessage = "OK";
-		newCommand->DelimiterMessage = NULL;
-		return newCommand;
-	}
-
-	static ATCommand* ATD(char* number)
-	{
-		char* callMessageNumber = (char*)malloc(strlen(number)+7);
-		callMessageNumber [0] = 0;
-		strcat(callMessageNumber, "ATD");
-		strcat(callMessageNumber, number);
-		strcat(callMessageNumber, ";\r\n");
-
-		ATCommand* newCommand = new ATCommand();
-		newCommand->SendMessage = callMessageNumber;
-		newCommand->ReceiveMessage = "OK";
-		newCommand->DelimiterMessage = NULL;
-		return newCommand;
-	}
-	
-	static ATCommand* ATH()
-	{
-		ATCommand* newCommand = new ATCommand();
-		newCommand->SendMessage = "ATH\r\n";
-		newCommand->DelimiterMessage = NULL;
-		return newCommand;
-	}
-
-	char* SendMessage;
-	char* ReceiveMessage;
-	char DelimiterMessage;
-
+	virtual std::string Command() = 0;
+	virtual bool ProcessMessage(std::string message) = 0;
 };
 
-class ATCommander{
+class ATOK : public ATCommand{
 public:
-	void CreateUI()
-	{
-		this->ui = new ATUI();
+	std::string Command(){
+		return AT_AT + AT_ENTER;
 	}
-	
-	int OpenSerial(char* serialName, speed_t baud)
-	{
+
+	bool ProcessMessage(std::string message){}
+};
+
+class ATD : public ATCommand{
+public:
+	ATD(std::string number){
+		this->number = number;
+	}
+
+	std::string Command(){
+		return AT_ATD + this->number + ";" + AT_ENTER;
+	}
+
+	bool ProcessMessage(std::string message){}
+
+private:
+	std::string number;
+};
+
+class ATCHLD : public ATCommand{
+public:
+	std::string Command(){
+		return AT_ATCHLD + AT_ENTER;
+	}
+
+	bool ProcessMessage(std::string message){}
+};
+
+class ATCMUT : public ATCommand{
+	std::string Command(){
+		return AT_ATCMUT + AT_ENTER;
+	}
+
+	bool ProcessMessage(std::string message){}
+};
+
+class IATTerminal {
+public:
+	virtual bool OpenSerial(std::string serialName, speed_t baud) = 0;
+	virtual bool CloseSerial() = 0;
+	virtual bool Write(ATCommand* command) = 0;
+	virtual std::string Read() = 0;
+
+	virtual void SetUI(IATUI* ui) = 0;
+};
+
+class ATTermios : public IATTerminal{
+public:
+	bool OpenSerial(std::string serialName, speed_t baud){
 		char messageBuffer[200];
 		int fd;
 		this->terminalFile = -1;
 				
-		sprintf(messageBuffer, "Initializing serial file %s", serialName);
+		sprintf(messageBuffer, "Initializing serial file %s", serialName.c_str());
 		this->ui->StartUpMessage(ATUIMessageType::Message, messageBuffer);
-		fd = open(serialName, O_RDWR | O_NOCTTY);
+		fd = open(serialName.c_str(), O_RDWR | O_NOCTTY);
 		
 		this->ui->StartUpMessage(ATUIMessageType::Message, "Opening terminal");
 		this->terminal.c_cflag= CBAUD | CS8 | CLOCAL | CREAD;
@@ -125,28 +141,28 @@ public:
 		if (tcflush(fd,TCIFLUSH)==-1)
 		{
 			this->ui->StartUpMessage(ATUIMessageType::Error, "Serial failed with TCIFLUSH");
-			return -1;
+			return false;
 		}
 		
 		if (tcflush(fd,TCOFLUSH)==-1)
 		{
 			this->ui->StartUpMessage(ATUIMessageType::Error, "Serial failed with TCOFLUSH");
+			return false;
 		}
 		
 		if (tcsetattr(fd,TCSANOW,&this->terminal)==-1)
 		{
 			this->ui->StartUpMessage(ATUIMessageType::Error, "Serial failed with TCSANOW");
+			return false;
 		}
 		
 		this->ui->StartUpMessage(ATUIMessageType::Success, "Serial is open");
 		this->terminalFile = fd;
 		
-		return fd;
-		
+		return true;
 	}
 
-	void CloseSerial()
-	{
+	bool CloseSerial(){
 		if (this->terminalFile != -1)
 		{
 			this->ui->StartUpMessage(ATUIMessageType::Message, "Closing serial file");
@@ -154,73 +170,107 @@ public:
 		}
 	}
 
-	void WriteATCommand(ATCommand* command)
+	bool Write(ATCommand* command)
 	{
 		this->ui->StartUpMessage(ATUIMessageType::Message, "Sending AT");
-		this->ui->StartUpMessage(ATUIMessageType::Command, command->SendMessage);
-		write(this->terminalFile, command->SendMessage, strlen(command->SendMessage));
+		this->ui->StartUpMessage(ATUIMessageType::Command, command->Command());
+		const char* message = command->Command().c_str();
+		write(this->terminalFile, command->Command().c_str(), command->Command().length());
 		this->ui->StartUpMessage(ATUIMessageType::Message, "Sent");
+
+		return true;
 	}
 
-	int ReadATResponse(char* data, int size, int timeout_usec)
+	std::string Read()
 	{
 		memset(data, 0, size);
 		this->ui->StartUpMessage(ATUIMessageType::Message, "Reading AT");
 		int result = read(this->terminalFile, data, size);
 		this->ui->StartUpMessage(ATUIMessageType::Read, data);
+
+		return string(data, result);
 	}
-	/*
-	CloseSerial();
-	EnqueueCommand();
-	DequeueCommand();
-	void QueueMainLoop()
-	{
-		while(this->CancelationToken == false)
-		{
-			// Main queue loop
-			// Read serial and enqueue any command
-			// top command and execute
-			// read result and pop
-		}
-	}*/
+
+	void SetUI(IATUI* ui){
+		this->ui = ui;
+	}
 private:
-	ATUI* ui;
 	struct termios terminal;
 	int terminalFile;
-	//std::thread ATQueueThread (QueueMainLoop);
-	bool CancelationToken;
-	//std::queue<ATCommand> ATQueueCommands;
+	IATUI* ui;
+	char data[256];
+	int size = 256;
+	int timeout_usec = 10000;
+};
+
+class ATCommander{
+public:
+	ATCommander(){
+	}
+
+	void SetUI(IATUI* ui)
+	{
+		this->ui = ui;
+	}
+
+	void SetTermios(IATTerminal* terminal)
+	{
+		this->terminal = terminal;
+	}
+
+	bool PushCommand(ATCommand* command){
+		this->commandQueue.push(command);
+		return true;
+	}
+
+	bool ExecuteTopCommand(){
+		if (!this->commandQueue.empty()){
+			ATCommand* command = this->commandQueue.front();
+			this->commandQueue.pop();
+
+			this->terminal->Write(command);
+			std::string response = this->terminal->Read();
+
+		}
+	}
+
+private:
+	IATUI* ui;
+	IATTerminal* terminal;
+	queue<ATCommand*> commandQueue;
 };
 
 int main()
 {
 	ATCommander* commander = new ATCommander();
-	
-	commander->CreateUI();
-	commander->OpenSerial("/dev/ttyUSB0", B115200);
+	IATUI* ui = new ATUI();
+	IATTerminal* terminal = new ATTermios();
 
+	terminal->SetUI(ui);
+	terminal->OpenSerial("/dev/ttyUSB0", B115200);
+
+	commander->SetUI(ui);
+	commander->SetTermios(terminal);
+	
 	ATCommand* command;
 
-	command = ATCommand::ATOK();
-	commander->WriteATCommand(command);
+	command = new ATOK();
+	commander->PushCommand(command);
 
-	char data[256];
-	int read;
-	std::this_thread::sleep_for(std::chrono::seconds(2));
-	read = commander->ReadATResponse(data, sizeof(data), 10000);
+	commander->ExecuteTopCommand();
 
-	command = ATCommand::ATD("");
-	commander->WriteATCommand(command);
-std::this_thread::sleep_for(std::chrono::seconds(2));
-	read = commander->ReadATResponse(data,  sizeof(data), 10000);
+	command = new ATD(std::string("4252096207"));
+	commander->PushCommand(command);
 
-	printf(">press any key to hang up\n");
+	commander->ExecuteTopCommand();
+
+	printf(">Press any key to drop call");
 	getchar();
 
-	command = ATCommand::ATH();
-	commander->WriteATCommand(command);
+	command = new ATCHLD();
+	commander->PushCommand(command);
 
-	printf("Call finished\n");
+	commander->ExecuteTopCommand();
 
-	commander->CloseSerial();
+	terminal->CloseSerial();
 }
