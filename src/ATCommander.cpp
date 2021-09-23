@@ -7,6 +7,7 @@
 #include <termios.h>
 #include <wchar.h>
 #include <queue>
+#include <ncurses.h>
 
 #include <iostream>
 #include <sys/types.h>
@@ -16,47 +17,11 @@
 #include <thread>
 
 #include "ATResponses.h"
+#include "ATNCursesUI.h"
+#include "ATPrintfUI.h"
+#include "IATUI.h"
 
 using namespace std;
-
-enum ATUIMessageType
-{
-	Message = 0,
-	Error = 1,
-	Success = 2,
-	Command = 3,
-	Read = 4
-};
-
-class IATUI{
-public:
-	virtual void StartUpMessage(ATUIMessageType type, std::string message) = 0;
-};
-
-class ATUI : public IATUI{
-	public:
-		void StartUpMessage(ATUIMessageType type, std::string message)
-		{
-			switch (type)
-			{
-				case Message:
-					printf("Message: %s\n", message.c_str());
-					break;
-				case Error:
-					printf("Error: %s\n", message.c_str());
-					break;
-				case Success:
-					printf("Success: %s\n", message.c_str());
-					break;
-				case Command:
-					printf("Command: %s\n", message.c_str());
-					break;
-				case Read:
-					printf("Read: %s\n", message.c_str());
-					break;
-			}
-		}
-};
 
 class ATCommand {
 public:
@@ -91,19 +56,53 @@ private:
 
 class ATCHLD : public ATCommand{
 public:
+	ATCHLD(){}
 	std::string Command(){
 		return AT_ATCHLD + AT_ENTER;
 	}
 
-	bool ProcessMessage(std::string message){}
+	bool ProcessMessage(string message){}
 };
 
 class ATCMUT : public ATCommand{
+	ATCMUT(){}
+
 	std::string Command(){
 		return AT_ATCMUT + AT_ENTER;
 	}
 
-	bool ProcessMessage(std::string message){}
+	bool ProcessMessage(string message){}
+};
+
+class ATCMGS : public ATCommand{
+	ATCMGS(string number, string message){
+		this->phoneNumber = number;
+		this->message = message;
+	}
+
+	std::string Command(){
+		char breakCode[1] = { 0x1A };
+		return AT_ATCMGS + string("=\"") + this->phoneNumber + string("\"\r\n") + this->message + string(breakCode);
+	}
+
+	bool ProcessMessage(string message){}
+private:
+	string phoneNumber;
+	string message;
+};
+
+class ATCMGF : public ATCommand{
+	ATCMGF(string value){
+		this->value = value;
+	}
+
+	string Command(){
+		return AT_ATCMGF + "=" + this->value + AT_ENTER;
+	}
+
+	string Processmessage(string message){}
+private:
+	string value;
 };
 
 class IATTerminal {
@@ -242,35 +241,49 @@ private:
 
 int main()
 {
-	ATCommander* commander = new ATCommander();
-	IATUI* ui = new ATUI();
-	IATTerminal* terminal = new ATTermios();
+	// 1 for test 2 for run
+	std::string runType;
+	printf("1 for test, 2 for run\n");
+	getline(std::cin, runType);
 
-	terminal->SetUI(ui);
-	terminal->OpenSerial("/dev/ttyUSB0", B115200);
+	if (runType.compare(string("1")) == 0){
+		// TESTS
+	}else if (runType.compare(string("2")) == 0)
+	{
+		// AT RUN
 
-	commander->SetUI(ui);
-	commander->SetTermios(terminal);
-	
-	ATCommand* command;
+		ATCommander* commander = new ATCommander();
+		IATUI* ui = new ATPrintfUI();
+		IATTerminal* terminal = new ATTermios();
 
-	command = new ATOK();
-	commander->PushCommand(command);
+		terminal->SetUI(ui);
+		terminal->OpenSerial("/dev/ttyUSB0", B115200);
 
-	commander->ExecuteTopCommand();
+		commander->SetUI(ui);
+		commander->SetTermios(terminal);
 
-	command = new ATD(std::string("4252096207"));
-	commander->PushCommand(command);
+		ATCommand* command;
 
-	commander->ExecuteTopCommand();
+		command = new ATOK();
+		commander->PushCommand(command);
 
-	printf(">Press any key to drop call");
-	getchar();
+		commander->ExecuteTopCommand();
 
-	command = new ATCHLD();
-	commander->PushCommand(command);
+		command = new ATD(std::string("4252096207"));
+		commander->PushCommand(command);
 
-	commander->ExecuteTopCommand();
+		commander->ExecuteTopCommand();
 
-	terminal->CloseSerial();
+		printf(">Press any key to drop call");
+		getchar();
+
+		command = new ATCHLD();
+		commander->PushCommand(command);
+
+		commander->ExecuteTopCommand();
+
+		terminal->CloseSerial();
+	}else{
+		printf("option [%s] is not valid\n", runType.c_str());
+	}
 }
