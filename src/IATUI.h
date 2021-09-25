@@ -10,13 +10,14 @@ enum ATUIMessageType
 	Message = 0,
 	Error = 1,
 	Success = 2,
-	Command = 3,
-	Read = 4
+	SendCommand = 3,
+	ReadCommand = 4
 };
 
 class IATUI{
 public:
-	virtual void StartUpMessage(ATUIMessageType type, std::string message) = 0;
+	virtual void Message(ATUIMessageType type, char* message) = 0;
+	virtual void CarrierName(char* carrierName) = 0;
 };
 
 #endif

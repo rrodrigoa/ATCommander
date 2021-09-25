@@ -20,186 +20,153 @@
 #include "ATNCursesUI.h"
 #include "ATPrintfUI.h"
 #include "IATUI.h"
+#include "IATTerminal.h"
+#include "ATTermios.h"
 
 using namespace std;
 
+
 class ATCommand {
 public:
-	virtual std::string Command() = 0;
-	virtual bool ProcessMessage(std::string message) = 0;
+	virtual bool ExecuteCommand(IATTerminal* terminal, IATUI* ui) = 0;
 };
 
-class ATOK : public ATCommand{
+class SendSMS : public ATCommand{
 public:
-	std::string Command(){
-		return AT_AT + AT_ENTER;
+	SendSMS(char* phone, char* message){
+		memcpy(this->phone,  phone,  strlen(phone));
+		memcpy(this->message, message, strlen(message));
 	}
 
-	bool ProcessMessage(std::string message){}
-};
+	bool ExecuteCommand(IATTerminal* terminal, IATUI* ui)
+	{
+		char at_CMGF[20];
+		memset(at_CMGF, 0, 20);
+		sprintf(at_CMGF, "%s=1\r\n", AT_ATCMGF);
 
-class ATD : public ATCommand{
-public:
-	ATD(std::string number){
-		this->number = number;
-	}
 
-	std::string Command(){
-		return AT_ATD + this->number + ";" + AT_ENTER;
-	}
+		char at_CMGS[50];
+		memset(at_CMGS, 0, 50);
 
-	bool ProcessMessage(std::string message){}
+		// Clear buffer
+		terminal->Read(0);
 
-private:
-	std::string number;
-};
-
-class ATCHLD : public ATCommand{
-public:
-	ATCHLD(){}
-	std::string Command(){
-		return AT_ATCHLD + AT_ENTER;
-	}
-
-	bool ProcessMessage(string message){}
-};
-
-class ATCMUT : public ATCommand{
-	ATCMUT(){}
-
-	std::string Command(){
-		return AT_ATCMUT + AT_ENTER;
-	}
-
-	bool ProcessMessage(string message){}
-};
-
-class ATCMGS : public ATCommand{
-	ATCMGS(string number, string message){
-		this->phoneNumber = number;
-		this->message = message;
-	}
-
-	std::string Command(){
-		char breakCode[1] = { 0x1A };
-		return AT_ATCMGS + string("=\"") + this->phoneNumber + string("\"\r\n") + this->message + string(breakCode);
-	}
-
-	bool ProcessMessage(string message){}
-private:
-	string phoneNumber;
-	string message;
-};
-
-class ATCMGF : public ATCommand{
-	ATCMGF(string value){
-		this->value = value;
-	}
-
-	string Command(){
-		return AT_ATCMGF + "=" + this->value + AT_ENTER;
-	}
-
-	string Processmessage(string message){}
-private:
-	string value;
-};
-
-class IATTerminal {
-public:
-	virtual bool OpenSerial(std::string serialName, speed_t baud) = 0;
-	virtual bool CloseSerial() = 0;
-	virtual bool Write(ATCommand* command) = 0;
-	virtual std::string Read() = 0;
-
-	virtual void SetUI(IATUI* ui) = 0;
-};
-
-class ATTermios : public IATTerminal{
-public:
-	bool OpenSerial(std::string serialName, speed_t baud){
-		char messageBuffer[200];
-		int fd;
-		this->terminalFile = -1;
-				
-		sprintf(messageBuffer, "Initializing serial file %s", serialName.c_str());
-		this->ui->StartUpMessage(ATUIMessageType::Message, messageBuffer);
-		fd = open(serialName.c_str(), O_RDWR | O_NOCTTY);
-		
-		this->ui->StartUpMessage(ATUIMessageType::Message, "Opening terminal");
-		this->terminal.c_cflag= CBAUD | CS8 | CLOCAL | CREAD;
-		this->terminal.c_iflag=IGNPAR;
-		this->terminal.c_oflag=0;
-		this->terminal.c_lflag=0;
-		this->terminal.c_cc[VMIN]=1;
-		this->terminal.c_cc[VTIME]=0;
-		cfsetospeed(&this->terminal,baud);
-		cfsetispeed(&this->terminal,baud);
-		tcsetattr(fd, TCSANOW, &this->terminal);
-		
-		if (tcflush(fd,TCIFLUSH)==-1)
-		{
-			this->ui->StartUpMessage(ATUIMessageType::Error, "Serial failed with TCIFLUSH");
+		// Write change SMS to text mode
+		terminal->Write(at_CMGF);
+		char* actualResponse = terminal->Read(100);
+		if (actualResponse == NULL || !strstr(actualResponse, AT_OK)){
 			return false;
 		}
-		
-		if (tcflush(fd,TCOFLUSH)==-1)
-		{
-			this->ui->StartUpMessage(ATUIMessageType::Error, "Serial failed with TCOFLUSH");
+
+		// Write SMS to phone number
+		sprintf(at_CMGS, "AT+CMGS=\"%s\"\r", this->phone);
+		terminal->Write(at_CMGS);
+		actualResponse = terminal->Read(100);
+		if (actualResponse == NULL || !strstr(actualResponse, AT_LARGER)){
 			return false;
 		}
-		
-		if (tcsetattr(fd,TCSANOW,&this->terminal)==-1)
-		{
-			this->ui->StartUpMessage(ATUIMessageType::Error, "Serial failed with TCSANOW");
+
+		// Write SMS message and ctrl+z to end message
+		terminal->Write(this->message);
+		char breakLine[2] = { 0x1A, 0 };
+		terminal->Write(breakLine);
+		actualResponse = terminal->Read(5000);
+		if (actualResponse == NULL || !strstr(actualResponse, AT_OK)){
 			return false;
 		}
-		
-		this->ui->StartUpMessage(ATUIMessageType::Success, "Serial is open");
-		this->terminalFile = fd;
-		
+
+		// Message was sent successfully
 		return true;
 	}
 
-	bool CloseSerial(){
-		if (this->terminalFile != -1)
-		{
-			this->ui->StartUpMessage(ATUIMessageType::Message, "Closing serial file");
-			close(this->terminalFile);
-		}
-	}
+private:
+	char phone[50];
+	char message[256];
+};
 
-	bool Write(ATCommand* command)
+class GetCarrierName : public ATCommand{
+public:
+	GetCarrierName(){}
+	bool ExecuteCommand(IATTerminal* terminal, IATUI* ui)
 	{
-		this->ui->StartUpMessage(ATUIMessageType::Message, "Sending AT");
-		this->ui->StartUpMessage(ATUIMessageType::Command, command->Command());
-		const char* message = command->Command().c_str();
-		write(this->terminalFile, command->Command().c_str(), command->Command().length());
-		this->ui->StartUpMessage(ATUIMessageType::Message, "Sent");
+		char at_COPS[20];
+		memset(at_COPS, 0, 20);
+		sprintf(at_COPS, "%s?\r\n", AT_ATCOPS);
+
+		// Clear buffer
+		terminal->Read(0);
+
+		// Get carrier name
+		terminal->Write(at_COPS);
+		char* actualResponse = terminal->Read(100);
+		if (actualResponse == NULL || !strstr(actualResponse, "\""))
+		{
+			return false;
+		}
+
+		string actualResponseString = string(actualResponse);
+		size_t start = actualResponseString.find_first_of('\"');
+		size_t end = actualResponseString.find_last_of('\"');
+		string carrierName = actualResponseString.substr(start, end);
+
+		ui->CarrierName(const_cast<char*>(carrierName.c_str()));
+	}
+};
+
+class MakeCall : public ATCommand{
+public:
+	MakeCall(char* phoneNumber){
+		this->phoneNumber = phoneNumber;
+	}
+	bool ExecuteCommand(IATTerminal* terminal, IATUI* ui){
+		char at_ATD[50];
+		memset(at_ATD, 0, 50);
+		sprintf(at_ATD, "%s%s;\r\n", AT_ATD, this->phoneNumber);
+
+		// Clear buffer
+		terminal-> Read(0);
+
+		// Make call
+		terminal->Write(at_ATD);
+		char* actualResponse = terminal->Read(5000);
+		if (actualResponse == NULL || !strstr(actualResponse, AT_OK)){
+			return false;
+		}
 
 		return true;
 	}
-
-	std::string Read()
-	{
-		memset(data, 0, size);
-		this->ui->StartUpMessage(ATUIMessageType::Message, "Reading AT");
-		int result = read(this->terminalFile, data, size);
-		this->ui->StartUpMessage(ATUIMessageType::Read, data);
-
-		return string(data, result);
-	}
-
-	void SetUI(IATUI* ui){
-		this->ui = ui;
-	}
 private:
-	struct termios terminal;
-	int terminalFile;
-	IATUI* ui;
-	char data[256];
-	int size = 256;
-	int timeout_usec = 10000;
+	char* phoneNumber;
+};
+
+class HangUpCall : public ATCommand{
+public:
+	HangUpCall(){}
+	bool ExecuteCommand(IATTerminal* terminal, IATUI* ui){
+		char at_CHUP[50];
+		memset(at_CHUP, 0, 50);
+		sprintf(at_CHUP, AT_ATCHUP);
+
+		// Clear buffer
+		terminal->Read(0);
+
+		// Hang Up Call
+		terminal->Write(at_CHUP);
+		char* actualResponse = terminal->Read(1000);
+		if(actualResponse == NULL || !strstr(actualResponse, AT_OK)){
+			return false;
+		}
+
+		return true;
+	}
+};
+
+class MuteCall : public ATCommand{
+public:
+	MuteCall(){}
+	bool ExecuteCommand(IATTerminal* terminal, IATUI* ui){
+		return true;
+	}
 };
 
 class ATCommander{
@@ -227,8 +194,7 @@ public:
 			ATCommand* command = this->commandQueue.front();
 			this->commandQueue.pop();
 
-			this->terminal->Write(command);
-			std::string response = this->terminal->Read();
+			command->ExecuteCommand(this->terminal, this->ui);
 
 		}
 	}
@@ -241,49 +207,55 @@ private:
 
 int main()
 {
-	// 1 for test 2 for run
-	std::string runType;
-	printf("1 for test, 2 for run\n");
-	getline(std::cin, runType);
+	ATCommander* commander = new ATCommander();
+	IATUI* ui = new ATPrintfUI();
+	IATTerminal* terminal = new ATTermios();
 
-	if (runType.compare(string("1")) == 0){
-		// TESTS
-	}else if (runType.compare(string("2")) == 0)
-	{
-		// AT RUN
+	terminal->SetUI(ui);
+	terminal->OpenSerial("/dev/ttyUSB0", B115200);
 
-		ATCommander* commander = new ATCommander();
-		IATUI* ui = new ATPrintfUI();
-		IATTerminal* terminal = new ATTermios();
+	commander->SetUI(ui);
+	commander->SetTermios(terminal);
 
-		terminal->SetUI(ui);
-		terminal->OpenSerial("/dev/ttyUSB0", B115200);
+	char noum[50];
+	char verb[50];
+	char subject[50];
 
-		commander->SetUI(ui);
-		commander->SetTermios(terminal);
+	printf("@");
+	while(scanf("%s %s", noum, verb) && !strstr(noum, "exit")){
+		// CALL
+		if (strstr(noum, "call")){
+			// call make
+			if(strstr(verb, "make")){
+				scanf("%s", subject);
+				ATCommand* command = new MakeCall(subject);
+				commander->PushCommand(command);
+				commander->ExecuteTopCommand();
+			}
 
-		ATCommand* command;
+			// call hangup
+			if(strstr(verb, "hangup") || strstr(verb, "hang") || strstr(verb, "stop")){
+				ATCommand* command = new HangUpCall();
+				commander->PushCommand(command);
+				commander->ExecuteTopCommand();
+			}
 
-		command = new ATOK();
-		commander->PushCommand(command);
+			// call mute
+			if(strstr(verb, "mute")){
+				ATCommand* command = new MuteCall();
+				commander->PushCommand(command);
+				commander->ExecuteTopCommand();
+			}
+		}
 
-		commander->ExecuteTopCommand();
+		// SMS
+		if (strstr(noum, "sms")){
+			// sms write
+			// sms read
+		}
 
-		command = new ATD(std::string("4252096207"));
-		commander->PushCommand(command);
-
-		commander->ExecuteTopCommand();
-
-		printf(">Press any key to drop call");
-		getchar();
-
-		command = new ATCHLD();
-		commander->PushCommand(command);
-
-		commander->ExecuteTopCommand();
-
-		terminal->CloseSerial();
-	}else{
-		printf("option [%s] is not valid\n", runType.c_str());
+		printf("@");
 	}
+
+	terminal->CloseSerial();
 }

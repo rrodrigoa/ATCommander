@@ -9,7 +9,8 @@ using namespace std;
 class ATPrintfUI : public IATUI{
 	public:
 		ATPrintfUI();
-		void StartUpMessage(ATUIMessageType type, std::string message);
+		void Message(ATUIMessageType type, char* message);
+		void CarrierName(char* carrierName);
 };
 
 #endif

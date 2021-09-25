@@ -3,23 +3,28 @@
 
 #define AT_CONNECT "CONNECT"
 #define AT_OK "OK"
+#define AT_LARGER ">"
 
-#define AT_ENTER string("\r\n")
+#define AT_ENTER "\r\n"
 
-#define AT_AT string("AT")
+#define AT_AT "AT"
 
 // Make call
-#define AT_ATD string("ATD")
+#define AT_ATD "ATD"
 
 // Hang up call
-#define AT_ATH string("ATH")
-#define AT_ATCHLD string("AT+CHLD")
+#define AT_ATH "ATH"
+#define AT_ATCHLD "AT+CHLD"
+#define AT_ATCHUP "AT+CHUP"
+
+// Get Carrier information
+#define AT_ATCOPS "AT+COPS"
 
 // Mute Microphone
-#define AT_ATCMUT string("AT+CMUT")
+#define AT_ATCMUT "AT+CMUT"
 
 // Set Message mode
-#define AT_ATCMGF string("AT+CMGF")
+#define AT_ATCMGF "AT+CMGF"
 // Create message
-#define AT_ATCMGS string("AT+CMGS")
+#define AT_ATCMGS "AT+CMGS"
 #endif

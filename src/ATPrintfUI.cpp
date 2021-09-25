@@ -6,24 +6,28 @@ using namespace std;
 
 ATPrintfUI::ATPrintfUI(){}
 
-void ATPrintfUI::StartUpMessage(ATUIMessageType type, std::string message){
+void ATPrintfUI::Message(ATUIMessageType type, char* message){
 	switch (type)
 	{
-		case Message:
-			printf("Message: %s\n", message.c_str());
+		case ATUIMessageType::Message:
+			printf("Message: %s\n", message);
 			break;
 		case Error:
-			printf("Error: %s\n", message.c_str());
+			printf("Error: %s\n", message);
 			break;
 		case Success:
-			printf("Success: %s\n", message.c_str());
+			printf("Success: %s\n", message);
 			break;
-		case Command:
-			printf("Command: %s\n", message.c_str());
+		case SendCommand:
+			printf(">>%s\n", message);
 			break;
-		case Read:
-			printf("Read: %s\n", message.c_str());
+		case ReadCommand:
+			printf("<<%s\n", message);
 			break;
 	}
+}
+
+void ATPrintfUI::CarrierName(char* carrierName){
+	printf("Carrier: %s\n", carrierName);
 }
 
